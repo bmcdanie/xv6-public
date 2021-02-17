@@ -7,6 +7,8 @@
 #include "proc.h"
 #include "spinlock.h"
 
+#include "rand.h"
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -23,6 +25,9 @@ static void wakeup1(void *chan);
 void
 pinit(void)
 {
+  // here I'd usually use something like system time to seed
+  // for testing reproducability, just a large odd prime
+  lcg_seed(199933);
   initlock(&ptable.lock, "ptable");
 }
 
@@ -88,7 +93,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-
+  p->tickets = DEFAULT_TICKETS;
+  p->ticks = 0;
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -199,6 +205,8 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
+
+  np->tickets = curproc->tickets;
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -332,13 +340,33 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+
+    // 1) determine ticket threshold to run process
+    int runnable_tickets = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
+      runnable_tickets += p->tickets;  
+    }
+	if(runnable_tickets > LCG_RAND_MAX) {
+		panic("need more range in RNG!");	
+    }
+	int const run_threshold = lcg_rand() % (runnable_tickets+1);
+
+	// 2) choose process to run
+    int ticket_scan = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state != RUNNABLE)
+        continue;
+	  ticket_scan += p->tickets;
+	  if(ticket_scan < run_threshold) {
+		continue;
+      }
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
-      // before jumping back to us.
+      // before jumping back to us. 
+      int const begin_ticks = ticks;
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
@@ -347,11 +375,12 @@ scheduler(void)
       switchkvm();
 
       // Process is done running for now.
-      // It should have changed its p->state before coming back.
+      // It should have changed its p->state before coming back. 
+      int const end_ticks = ticks;
+      p->ticks += end_ticks - begin_ticks;
       c->proc = 0;
     }
     release(&ptable.lock);
-
   }
 }
 
@@ -531,4 +560,28 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+// safely set tickets for a process
+void proctickets(struct proc* p, int tickets) {
+   acquire(&ptable.lock);
+   p->tickets = tickets;
+   release(&ptable.lock);
+}
+
+void populate_pstat(struct pstat* ret) {
+  acquire(&ptable.lock);
+  struct proc* p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      if(p->state == UNUSED) {
+           continue;
+      }
+      int const position = p - ptable.proc;
+	  ret->pid[position] = p->pid;
+      ret->tickets[position] = p->tickets;
+	  ret->ticks[position] = p->ticks;
+      ret->inuse[position] = (p->state == RUNNING) ? 1 : 0;
+  }
+
+  release(&ptable.lock);
 }

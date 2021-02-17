@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "pstat.h"
 
 int
 sys_fork(void)
@@ -89,3 +90,28 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// set tickets for scheduling
+int
+sys_settickets(void) {
+
+  int tickets;
+  
+  if(argint(0, &tickets) < 0) {
+    return -1;
+  } 
+  proctickets(myproc(), tickets);
+  return tickets;
+}
+
+int
+sys_getpinfo(void) {
+  struct pstat* ret;
+  argptr(0,(void*)&ret,sizeof(*ret));
+  if(ret == 0) {
+    return -1;
+  }
+  populate_pstat(ret);
+  return 0;
+}
+

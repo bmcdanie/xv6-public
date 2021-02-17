@@ -1,3 +1,5 @@
+#include "pstat.h"
+
 // Per-CPU state
 struct cpu {
   uchar apicid;                // Local APIC ID
@@ -49,6 +51,9 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  int ticks;
+  int tickets; 
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -56,3 +61,7 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+
+static int const DEFAULT_TICKETS = 10;
+void proctickets(struct proc* p, int tickets);
+void populate_pstat(struct pstat* stat);
