@@ -379,6 +379,7 @@ scheduler(void)
       int const end_ticks = ticks;
       p->ticks += end_ticks - begin_ticks;
       c->proc = 0;
+      break;
     }
     release(&ptable.lock);
   }
